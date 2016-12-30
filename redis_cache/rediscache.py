@@ -250,7 +250,7 @@ class SimpleCache(object):
             return {k: v for (k, v) in zip(keys, values) if v is not None}
 
     def get_json(self, key):
-        return json.loads(self.get(key))
+        return json.loads(self.get(key).decode('utf-8'))
 
     def get_pickle(self, key):
         return pickle.loads(self.get(key))
@@ -314,7 +314,7 @@ class SimpleCache(object):
 
     def get_hash(self, args):
         if self.hashkeys:
-            key = hashlib.md5(args).hexdigest()
+            key = hashlib.md5(repr(args).encode('utf-8')).hexdigest()
         else:
             key = pickle.dumps(args)
         return key
