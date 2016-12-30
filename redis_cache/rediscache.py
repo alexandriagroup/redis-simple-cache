@@ -399,4 +399,4 @@ def cache_it_json(limit=10000, expire=DEFAULT_EXPIRY,
     :return: decorated function
     """
     return cache_it(limit=limit, expire=expire, use_json=True,
-                    cache=cache, namespace=None)
+                    cache=cache, namespace=namespace)
