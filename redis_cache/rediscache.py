@@ -131,8 +131,6 @@ class SimpleCache(object):
         :param value: actual value being stored under this key
         :param expire: time-to-live (ttl) for this datum
         """
-        key = to_unicode(key)
-        value = to_unicode(value)
         set_name = self.get_set_name()
 
         while self.connection.scard(set_name) >= self.limit:
@@ -217,7 +215,6 @@ class SimpleCache(object):
     def get(self, key):
         # No need to validate membership, which is an O(1) operation,
         # but seems we can do without.
-        key = to_unicode(key)
         if key:
             value = self.connection.get(self.make_key(key))
             if value is None:  # expired key
@@ -237,7 +234,7 @@ class SimpleCache(object):
         :return: dict of found key/values
         """
         if keys:
-            cache_keys = [self.make_key(to_unicode(key)) for key in keys]
+            cache_keys = [self.make_key(key) for key in keys]
             values = self.connection.mget(cache_keys)
 
             if None in values:
@@ -273,7 +270,6 @@ class SimpleCache(object):
         Method removes (invalidates) an item from the cache.
         :param key: key to remove from Redis
         """
-        key = to_unicode(key)
         pipe = self.connection.pipeline()
         pipe.srem(self.get_set_name(), key)
         pipe.delete(self.make_key(key))
@@ -403,9 +399,3 @@ def cache_it_json(limit=10000, expire=DEFAULT_EXPIRY,
     """
     return cache_it(limit=limit, expire=expire, use_json=True,
                     cache=cache, namespace=None)
-
-
-def to_unicode(obj, encoding='utf-8'):
-    if isinstance(obj, str):
-        obj = obj.encode(encoding)
-    return obj
