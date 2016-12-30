@@ -2,3 +2,6 @@
 *.idea
 .DS_Store
 *.rdb
+build/
+dist/
+redis_simple_cache.egg-info/

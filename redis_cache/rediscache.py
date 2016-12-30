@@ -1,12 +1,21 @@
 """
 A simple redis-cache interface for storing python objects.
 """
-from functools import wraps
-import pickle
-import json
 import hashlib
-import redis
 import logging
+from functools import wraps
+import dill as pickle
+import redis
+import ujson as json
+
+
+__all__ = [
+    'RedisConnect',
+    'SimpleCache',
+    'cache_it',
+    'cache_it_json',
+]
+
 
 DEFAULT_EXPIRY = 60 * 60 * 24
 
@@ -17,6 +26,7 @@ class RedisConnect(object):
     This makes the Simple Cache class a little more flexible, for cases
     where redis connection configuration needs customizing.
     """
+
     def __init__(self, host=None, port=None, db=None, password=None):
         self.host = host if host else 'localhost'
         self.port = port if port else 6379
@@ -25,18 +35,23 @@ class RedisConnect(object):
 
     def connect(self):
         """
-        We cannot assume that connection will succeed, as such we use a ping()
-        method in the redis client library to validate ability to contact redis.
+        We cannot assume that connection will succeed, as such we use a
+        ping() method in the redis client library to validate ability to
+        contact redis.
+
         RedisNoConnException is raised if we fail to ping.
         :return: redis.StrictRedis Connection Object
         """
         try:
-            redis.StrictRedis(host=self.host, port=self.port, password=self.password).ping()
+            redis.StrictRedis(
+                host=self.host,
+                port=self.port,
+                password=self.password).ping()
         except redis.ConnectionError as e:
-            raise RedisNoConnException("Failed to create connection to redis",
+            raise RedisNoConnException('Failed to create connection to redis',
                                        (self.host,
                                         self.port)
-            )
+                                       )
         return redis.StrictRedis(host=self.host,
                                  port=self.port,
                                  db=self.db,
@@ -68,6 +83,7 @@ class DoNotCache(Exception):
 
 
 class SimpleCache(object):
+
     def __init__(self,
                  limit=10000,
                  expire=DEFAULT_EXPIRY,
@@ -76,7 +92,7 @@ class SimpleCache(object):
                  port=None,
                  db=None,
                  password=None,
-                 namespace="SimpleCache"):
+                 namespace='SimpleCache'):
 
         self.limit = limit  # No of json encoded strings to cache
         self.expire = expire  # Time to keys to expire in seconds
@@ -90,21 +106,22 @@ class SimpleCache(object):
                                            port=self.port,
                                            db=self.db,
                                            password=password).connect()
-        except RedisNoConnException, e:
+        except RedisNoConnException as e:
             self.connection = None
             pass
 
-        # Should we hash keys? There is a very small risk of collision invloved.
+        # Should we hash keys? There is a very small risk of collision
+        # invloved.
         self.hashkeys = hashkeys
 
     def make_key(self, key):
-        return "SimpleCache-{0}:{1}".format(self.prefix, key)
+        return 'SimpleCache-{0}:{1}'.format(self.prefix, key)
 
     def namespace_key(self, namespace):
         return self.make_key(namespace + ':*')
 
     def get_set_name(self):
-        return "SimpleCache-{0}-keys".format(self.prefix)
+        return 'SimpleCache-{0}-keys'.format(self.prefix)
 
     def store(self, key, value, expire=None):
         """
@@ -134,7 +151,6 @@ class SimpleCache(object):
         pipe.sadd(set_name, key)
         pipe.execute()
 
-
     def expire_all_in_set(self):
         """
         Method expires all keys in the namespace of this object.
@@ -147,7 +163,7 @@ class SimpleCache(object):
         :return: int, int
         """
         all_members = self.keys()
-        keys  = [self.make_key(k) for k in all_members]
+        keys = [self.make_key(k) for k in all_members]
 
         with self.connection.pipeline() as pipe:
             pipe.delete(*keys)
@@ -176,20 +192,21 @@ class SimpleCache(object):
 
     def isexpired(self, key):
         """
-        Method determines whether a given key is already expired. If not expired,
-        we expect to get back current ttl for the given key.
+        Method determines whether a given key is already expired. If
+        not expired, we expect to get back current ttl for the given key.
         :param key: key being looked-up in Redis
-        :return: bool (True) if expired, or int representing current time-to-live (ttl) value
+        :return: bool (True) if expired, or int representing current
+        time-to-live (ttl) value
         """
-        ttl = self.connection.pttl("SimpleCache-{0}".format(key))
-        if ttl == -2: # not exist
+        ttl = self.connection.pttl('SimpleCache-{0}'.format(key))
+        if ttl == -2:  # not exist
             ttl = self.connection.pttl(self.make_key(key))
         elif ttl == -1:
             return True
-        if not ttl is None:
+        if ttl is not None:
             return ttl
         else:
-            return self.connection.pttl("{0}:{1}".format(self.prefix, key))
+            return self.connection.pttl('{0}:{1}'.format(self.prefix, key))
 
     def store_json(self, key, value, expire=None):
         self.store(key, json.dumps(value), expire)
@@ -198,11 +215,14 @@ class SimpleCache(object):
         self.store(key, pickle.dumps(value), expire)
 
     def get(self, key):
+        # No need to validate membership, which is an O(1) operation,
+        # but seems we can do without.
         key = to_unicode(key)
-        if key:  # No need to validate membership, which is an O(1) operation, but seems we can do without.
+        if key:
             value = self.connection.get(self.make_key(key))
             if value is None:  # expired key
-                if not key in self:  # If key does not exist at all, it is a straight miss.
+                if key not in self:
+                    # If key does not exist at all, it is a straight miss.
                     raise CacheMissException
 
                 self.connection.srem(self.get_set_name(), key)
@@ -266,16 +286,15 @@ class SimpleCache(object):
         if not self.connection:
             return iter([])
         return iter(
-            ["{0}:{1}".format(self.prefix, x)
+            ['{0}:{1}'.format(self.prefix, x)
                 for x in self.connection.smembers(self.get_set_name())
-            ])
+             ])
 
     def __len__(self):
         return self.connection.scard(self.get_set_name())
 
     def keys(self):
         return self.connection.smembers(self.get_set_name())
-
 
     def flush(self):
         keys = list(self.keys())
@@ -310,20 +329,26 @@ def cache_it(limit=10000, expire=DEFAULT_EXPIRY, cache=None,
     :param cache: SimpleCache object, if created separately
     :return: decorated function
     """
-    cache_ = cache  ## Since python 2.x doesn't have the nonlocal keyword, we need to do this
-    expire_ = expire  ## Same here.
+    # Since python 2.x doesn't have the nonlocal keyword, we need to do this:
+    cache_ = cache
+    expire_ = expire  # Same here.
+
     def decorator(function):
         cache, expire = cache_, expire_
         if cache is None:
-            cache = SimpleCache(limit, expire, hashkeys=True, namespace=function.__module__)
+            cache = SimpleCache(
+                limit,
+                expire,
+                hashkeys=True,
+                namespace=function.__module__)
         elif expire == DEFAULT_EXPIRY:
-            # If the expire arg value is the default, set it to None so we store
-            # the expire value of the passed cache object
+            # If the expire arg value is the default, set it to None
+            # so we store the expire value of the passed cache object
             expire = None
 
         @wraps(function)
         def func(*args, **kwargs):
-            ## Handle cases where caching is down or otherwise not available.
+            # Handle cases where caching is down or otherwise not available.
             if cache.connection is None:
                 result = function(*args, **kwargs)
                 return result
@@ -332,8 +357,8 @@ def cache_it(limit=10000, expire=DEFAULT_EXPIRY, cache=None,
             fetcher = cache.get_json if use_json else cache.get_pickle
             storer = cache.store_json if use_json else cache.store_pickle
 
-            ## Key will be either a md5 hash or just pickle object,
-            ## in the form of `function name`:`key`
+            # Key will be either a md5 hash or just pickle object,
+            # in the form of `function name`:`key`
             key = cache.get_hash(serializer.dumps([args, kwargs]))
             cache_key = '{func_name}:{key}'.format(func_name=function.__name__,
                                                    key=key)
@@ -345,10 +370,12 @@ def cache_it(limit=10000, expire=DEFAULT_EXPIRY, cache=None,
             try:
                 return fetcher(cache_key)
             except (ExpiredKeyException, CacheMissException) as e:
-                ## Add some sort of cache miss handing here.
+                # Add some sort of cache miss handing here.
                 pass
             except:
-                logging.exception("Unknown redis-simple-cache error. Please check your Redis free space.")
+                logging.exception(
+                    'Unknown redis-simple-cache error. '
+                    'Please check your Redis free space.')
 
             try:
                 result = function(*args, **kwargs)
@@ -365,8 +392,8 @@ def cache_it(limit=10000, expire=DEFAULT_EXPIRY, cache=None,
     return decorator
 
 
-
-def cache_it_json(limit=10000, expire=DEFAULT_EXPIRY, cache=None, namespace=None):
+def cache_it_json(limit=10000, expire=DEFAULT_EXPIRY,
+                  cache=None, namespace=None):
     """
     Arguments and function result must be able to convert to JSON.
     :param limit: maximum number of keys to maintain in the set
@@ -379,7 +406,6 @@ def cache_it_json(limit=10000, expire=DEFAULT_EXPIRY, cache=None, namespace=None
 
 
 def to_unicode(obj, encoding='utf-8'):
-    if isinstance(obj, basestring):
-        if not isinstance(obj, unicode):
-            obj = unicode(obj, encoding)
+    if isinstance(obj, str):
+        obj = obj.encode(encoding)
     return obj
